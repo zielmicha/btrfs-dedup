@@ -35,4 +35,5 @@ proc extentSame*(src: ExtentInfo, dst: ExtentInfo, length: uint64) =
     raiseOSError(osLastError())
 
   if args.info.status != 0:
-    raise newException(OSError, "extent-same returned $1" % [$args.info.status])
+    echo args.repr
+    echo("extent-same returned $1" % [$args.info.status])

@@ -2,3 +2,5 @@ nimcache/
 /dedup
 /nim.cfg
 /nimenv.local
+/.nimenv
+/bin

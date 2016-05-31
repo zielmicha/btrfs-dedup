@@ -1,6 +1,7 @@
-import extentmap, posix, securehash, os, tables, hashes, extentsame
+import extentmap, posix, securehash, os, tables, hashes, extentsame, strutils, options
 
 var fileNames: seq[string]
+var O_NOFOLLOW {.importc, header: "<sys/types.h>".}: cint
 
 type
   Extent = tuple
@@ -9,13 +10,15 @@ type
     length: uint64
     physicalId: uint64
 
-proc getHash(fd: FileHandle, offset: uint64, length: uint64): SecureHash =
+proc getHash(fd: FileHandle, offset: uint64, length: uint64): tuple[hash: SecureHash, length: uint64] =
   discard lseek(fd.cint, offset.cint, 0)
   var buffer = newString(length)
   let readSize = read(fd, addr buffer[0], length.int)
-  if readSize != length.int:
+  if readSize < 0:
     raiseOSError(osLastError())
-  return secureHash(buffer)
+  if readSize != length.int:
+    buffer = buffer[0..<readSize]
+  return (secureHash(buffer), readSize.uint64)
 
 proc hash(s: SecureHash): int =
   return array[20, uint8](s).hash
@@ -29,7 +32,7 @@ proc firstValue(t: auto): auto =
   doAssert(false)
 
 proc openFd(path: string, write=false): FileHandle =
-  let fd = posix.open(path, if write: O_RDWR else: O_RDONLY).FileHandle
+  let fd = posix.open(path, (if write: O_RDWR else: O_RDONLY) or O_NOFOLLOW).FileHandle
   if fd < 0:
     raiseOSError(osLastError())
   return fd
@@ -38,11 +41,19 @@ proc dedup() =
   var byHash = initTable[SecureHash, seq[Extent]]()
 
   for fileNum in 0..<fileNames.len:
-    let fd = openFd(fileNames[fileNum])
+    echo "processing ", fileNames[fileNum]
+    var fd: FileHandle
+    var extents: seq[FiemapExtent]
+    try:
+      fd = openFd(fileNames[fileNum])
+      extents = getExtents(fileNames[fileNum])
+    except OSError:
+      echo fileNames[fileNum], ": ", getCurrentException().msg
+      continue
 
-    for extent in getExtents(fileNames[fileNum]):
-      let hash = getHash(fd, extent.logical, extent.length)
-      byHash.mgetOrPut(hash, @[]).add((fileNum, extent.logical, extent.length, extent.physical))
+    for extent in extents:
+      let (hash, length) = getHash(fd, extent.logical, extent.length)
+      byHash.mgetOrPut(hash, @[]).add((fileNum, extent.logical, length, extent.physical))
 
     discard close(fd)
 
@@ -67,5 +78,9 @@ proc dedup() =
       extentsame.extentSame((firstFd, first.offset).ExtentInfo, (itemFd, item.offset).ExtentInfo, length)
 
 when isMainModule:
-  fileNames = @["/data/dedup/rand", "/data/dedup/zero"]
+  fileNames = @[]
+  for fn in stdin.readAll().split("\L"):
+    if fn.len == 0:
+      break
+    fileNames.add fn
   dedup()
