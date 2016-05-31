@@ -1,1 +1,4 @@
 nimcache/
+/dedup
+/nim.cfg
+/nimenv.local
