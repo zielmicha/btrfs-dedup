@@ -12,12 +12,13 @@ type
 
 proc getHash(fd: FileHandle, offset: uint64, length: uint64): tuple[hash: SecureHash, length: uint64] =
   discard lseek(fd.cint, offset.cint, 0)
-  var buffer = newString(length)
+  var buffer {.global.} = newString(1024 * 1024)
+  buffer.setLen(length)
   let readSize = read(fd, addr buffer[0], length.int)
   if readSize < 0:
     raiseOSError(osLastError())
   if readSize != length.int:
-    buffer = buffer[0..<readSize]
+    buffer.setLen(readSize)
   return (secureHash(buffer), readSize.uint64)
 
 proc hash(s: SecureHash): int =
