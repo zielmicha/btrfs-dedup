@@ -41,6 +41,7 @@ proc openFd(path: string, write=false): FileHandle =
 proc dedup() =
   var byHash = initTable[SecureHash, seq[Extent]]()
 
+  var segI: uint64 = 0
   for fileNum in 0..<fileNames.len:
     echo "processing ", fileNames[fileNum]
     var fd: FileHandle
@@ -52,9 +53,18 @@ proc dedup() =
       echo fileNames[fileNum], ": ", getCurrentException().msg
       continue
 
+    var size: uint64 = 0
     for extent in extents:
-      let (hash, length) = getHash(fd, extent.logical, extent.length)
-      byHash.mgetOrPut(hash, @[]).add((fileNum, extent.logical, length, extent.physical))
+      size += extent.length
+
+    let blockBits = 17
+    let blockSize = 1.uint64 shl blockBits.uint64
+
+    for i in 0..<(size shr blockBits.uint64):
+      let offset = i * blockSize
+      segI += 1
+      let (hash, length) = getHash(fd, offset, blockSize)
+      byHash.mgetOrPut(hash, @[]).add((fileNum, offset, length, segI).Extent)
 
     discard close(fd)
 
